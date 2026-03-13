@@ -13,8 +13,9 @@ import numpy as np
 from pypeit import fluxcalibrate
 from pypeit import sensfunc
 from pypeit.tests.tstutils import data_output_path
-from pypeit.spectrographs.util import load_spectrograph
 from pypeit import specobjs
+from pypeit.scripts import loader
+from pypeit.spectrographs.util import load_spectrograph
 
 
 @pytest.fixture
@@ -30,6 +31,71 @@ def kast_blue_files(redux_out):
                             'shane_kast_blue_A', 'Science',
                             'spec1d_b27-J1217p3905_KASTb_20150520T045733.560.fits')
     return [std_file, sci_file]
+
+
+def test_find_std(kast_blue_files, redux_out):
+    # Files
+    std_file, sci_file = kast_blue_files
+    # Read the specobjs
+    sobj = specobjs.SpecObjs.from_fitsfile(std_file)
+    # Find the name of the standard-star extraction
+    std_names = sobj.identify_standard()
+    # There should be only one.
+    assert len(std_names) == 1, 'Should only identify one spectrum associated with the standard'
+    # Make sure the index conversion works
+    std_indx = np.where(sobj.name_indices(std_names[0]))[0]
+    assert len(std_indx) == 1, \
+        'Somehow found more than one index associated with the standard spectrum name'
+    # Get the median S/N of the boxcar extraction and check its value
+    med_snr = np.median(sobj[std_indx].BOX_COUNTS * np.sqrt(sobj[std_indx].BOX_COUNTS_IVAR))
+    assert med_snr > 100., 'Median S/N is expected to be larger than 100.'
+
+
+def test_load_std(kast_blue_files, redux_out):
+    # Files
+    std_file, sci_file = kast_blue_files
+    # Try default loading 
+    spec, splice_multi_det = loader.load_standard(std_file)
+    assert len(spec) == 1, 'Should only find one spectrum'
+    assert not splice_multi_det, 'This spectrum should not be spliced across multiple detectors'
+
+    # Are the names consistent?
+    sobj = specobjs.SpecObjs.from_fitsfile(std_file)
+    std_names = sobj.identify_standard()
+    assert len(std_names) == 1, 'Should only find one source name'
+    assert std_names[0] == spec[0].meta['NAME'], \
+        'loader.load_standard and SpecObjs.identify_standard found different source names'
+
+    # Try loading when the name is known
+    _spec, splice_multi_det = loader.load_standard(std_file, names=std_names[0])
+    assert len(_spec) == 1, 'Should only find one spectrum'
+    assert not splice_multi_det, 'This spectrum should not be spliced across multiple detectors'
+    assert _spec[0].meta['NAME'] == std_names[0], 'Spectrum does not have the correct name'
+
+
+def test_tweak_std(kast_blue_files, redux_out):
+    # Files
+    std_file, sci_file = kast_blue_files
+    # Try default loading 
+    std_spec, splice_multi_det = loader.load_standard(std_file)
+
+    # Test tweaking
+    spec = load_spectrograph(std_spec[0].meta['PYP_SPEC'])
+    # This should just return a copy of the input
+    twk_spec = spec.tweak_standard(std_spec)
+    assert len(twk_spec) == len(std_spec), 'Should return the same number of spectra'
+    assert not twk_spec[0] is std_spec[0], 'Object should be a copy'
+    assert np.array_equal(twk_spec[0].wave, std_spec[0].wave), 'Wavelengths should be identical'
+    assert np.array_equal(twk_spec[0].flux, std_spec[0].flux), 'Flux should be identical'
+
+    # Test masking the first and last 10 pixels
+    twk_spec = spec.tweak_standard(std_spec, trim_std_pixs=(10,-10))
+    assert np.sum(twk_spec[0].gpm[:10]) == 0, 'Did not mask the first ten pixels.'
+    assert np.sum(twk_spec[0].gpm[-10:]) == 0, 'Did not mask the last ten pixels.'
+
+
+# TODO: Add some tweak tests for spectrographs that have dispname-specific
+# behavior
 
 
 def test_sensfunc(kast_blue_files, redux_out):
