@@ -18,8 +18,7 @@ from pypeit import specobjs
 
 
 @pytest.fixture
-def kast_blue_files(request):
-    redux_out = request.config.getoption("--redux_out")
+def kast_blue_files(redux_out):
     std_file = os.path.join(redux_out,
                             'shane_kast_blue', 
                             '600_4310_d55', 
@@ -33,10 +32,9 @@ def kast_blue_files(request):
     return [std_file, sci_file]
 
 
-def test_sensfunc(kast_blue_files, request):
+def test_sensfunc(kast_blue_files, redux_out):
 
     sens_file = data_output_path('sensfunc.fits')
-    redux_out = request.config.getoption("--redux_out")
     kast_blue_out = os.path.join(redux_out, 'shane_kast_blue', '600_4310_d55', 'shane_kast_blue_A')
 
     # Test the meta_spec data of the SensFunc
